@@ -4,7 +4,7 @@
 
 \subsection{Теория: ZMQ и передача данных между Android и сервером}
 
-ZeroMQ - это библиотека для асинхронного обмена сообщениями между процессами или по сети. Она работает поверх обычных сокетов, но упрощает программирование: не нужно управлять соединениями, повторными отправками и буферизацией. В проекте используется шаблон REQ/REP. Android выступает в роли клиента, отправляя JSON с координатами на сервер, а сервер отвечает коротким подтверждением. Данные передаются по TCP. Сервер привязан к порту 5555 на всех интерфейсах, клиент подключается по IP-адресу компьютера в той же локальной сети.
+ZeroMQ - это библиотека для асинхронного обмена сообщениями между процессами или по сети. Она работает поверх обычных сокетов, но упрощает программирование: не нужно управлять соединениями, повторными отправками и буферизацией. В проекте используется шаблон REQ/REP. Android выступает в роли клиента, отправляя JSON с координатами на сервер, а сервер отвечает коротким подтверждением. Данные передаются по TCP. Сервер привязан к порту 5555 на всех интерфейсах, клиент подключается по IP-адресу компьютера в той же локальной сети \cite{zeromq}.
 
 \subsection{Реализация}
 
@@ -52,12 +52,10 @@ void run_zmq_server(LocationData* loc){
                     loc->longitude=getFloatValue(loc_data,"longitude",0.0f);
                     loc->altitude=getFloatValue(loc_data,"altitude",0.0f);
                     loc->accuracy=getFloatValue(loc_data,"accuracy",0.0f);
-                    loc->time=loc_data.value("time","No data");}
-                //тут мог быть парсинг traffic и cells }
+                    loc->time=loc_data.value("time","No data");}}
             g_measurementCounter++;
             saveToJsonFile(*loc,g_measurementCounter);
-            updateSignalHistory(*loc);
-            //сохранение в БД}
+            updateSignalHistory(*loc);}
         catch(const json::parse_error& e){std::cerr<<"Ошибка JSON: "<<e.what()<<std::endl;}}}
 \end{lstlisting}
 
@@ -165,7 +163,6 @@ int Database::insertMeasurement(const LocationData& data,int counter){
           << "traffic_total, traffic_total_rx, traffic_total_tx) "
           << "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
           << "RETURNING id";
-    //выполнение запроса
     return measurement_id;}
 
 bool Database::insertCell(int measurement_id,const CellTowerData& cell){
@@ -174,8 +171,7 @@ bool Database::insertCell(int measurement_id,const CellTowerData& cell){
           << "cell_identity, tac, earfcn, band, pci, rsrp, rsrq, "
           << "rssi, rssnr, asu_level, cqi, timing_advance) "
           << "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, "
-          << "$11, $12, $13, $14, $15, $16)";
-    //выполнение запроса}
+          << "$11, $12, $13, $14, $15, $16)";}
 \end{lstlisting}
 
 В GUI-потоке данные о сигналах накапливаются в структуре SignalHistory с мьютексом. Графики используют библиотеку ImPlot.
@@ -216,7 +212,6 @@ struct SignalHistory{
 bool TileManager::downloadTile(int zoom,int x,int y,std::vector<uint8_t>& rgbaData,int& width,int& height){
     std::string url="https://tile.openstreetmap.org/"+std::to_string(zoom)+"/"+std::to_string(x)+"/"+std::to_string(y)+".png";
     CURL* curl=curl_easy_init();
-    //настройки curl
     curl_easy_setopt(curl,CURLOPT_URL,url.c_str());
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,WriteCallback);
     CURLcode res=curl_easy_perform(curl);
@@ -235,7 +230,6 @@ int TileManager::getZoomForLimits(double minLon,double maxLon){
     else if (diff>45.0) return 5;
     else if (diff>22.5) return 6;
     else if (diff>11.25) return 7;
-    //и тд
     else return 15;}
 
 double TileManager::mercatorXToTileX(double mercatorX,int zoom){
@@ -254,7 +248,6 @@ double TileManager::mercatorYToTileY(double mercatorY,int zoom){
 \begin{lstlisting}[language=C++, caption=Рендеринг тайлов карты, label=lst:tile_render]
 void TileManager::renderTiles(double minX,double maxX,double minY,double maxY){
     int zoom=getZoomForLimits(minX,maxX);
-    //выч. диапазона тайлов
     
     for (int x=minTileX;x<=maxTileX;x++){
         for (int y=minTileY;y<=maxTileY;y++){
@@ -282,9 +275,7 @@ void TileManager::fetchWorker(){
         if (hasJob){
             std::vector<uint8_t> rgbaData;
             int width, height;
-            if (downloadTile(job.zoom,job.x,job.y,rgbaData,width,height)){
-                //сохранение в кэш и создание текстуры
-                }
+            if (downloadTile(job.zoom,job.x,job.y,rgbaData,width,height)){}
         }else{std::this_thread::sleep_for(std::chrono::milliseconds(10));}}}
 \end{lstlisting}
 
@@ -339,7 +330,6 @@ std::vector<HeatmapDbRow> Database::getHeatmapRows(){
         row.longitude=std::stod(PQgetvalue(res,i,1));
         row.earfcn=std::stoi(PQgetvalue(res,i,4));
         row.rsrp=std::stoi(PQgetvalue(res,i,5));
-        //...
         rows.push_back(row);}return rows;}
 \end{lstlisting}
 
@@ -365,8 +355,7 @@ bool HeatmapData::renderTile(const HeatmapSelection& selection,int zoom,int x,in
                 totalWeight+=weight;}
             
             if (totalWeight>0.0){
-                double interpolatedValue=weightedSum/totalWeight;
-                // преобразование в цвет пикселя}}}
+                double interpolatedValue=weightedSum/totalWeight;}}}
     return hasVisiblePixels;}
 \end{lstlisting}
 
