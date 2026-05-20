@@ -1,21 +1,422 @@
-\chapter{Таблицы}
-\label{ch:tab}
-    Наконец, разберемся с таблицами. В принципе, \LaTeX{} позволяет делать большие и сложные таблицы, но вручную обычно их не пишут; для этого используют разные сайты типа \href{https://www.tablesgenerator.com/}{типа такого}. По ГОСТ заморачиваться с таблицами особо не надо, главное чтобы правильно были заданы подписи, работала нумерация и ссылки. Все необходимые стилевые условия уже зашиты в данный шаблон. Помните, что в конце заголовка таблицы, как и в конце подписи к рисунку, точка не ставится! Воспользовавишись сайтом по данной выше ссылке, можем сделать, например, такую таблицу:
-\begin{table}[ht]
-\caption{Вот так выглядит рандомная таблица из Интернета с ценой разных животных, которых можно найти в мире}
-\label{tab:t1}
-\centering
-\begin{tabular}{llr}
-\hline
-Animal    & Description & Price (\$) \\ \hline
-Gnat      & per gram    & 13.65      \\
-          & each        & 0.01       \\
-Gnu       & stuffed     & 92.50      \\
-Emu       & stuffed     & 33.33      \\
-Armadillo & frozen      & 8.99       \\ \hline
-\end{tabular}
-\end{table}
+\chapter{Backend приложение и его основные функции}
+\label{ch:backend}
+\section{Лабораторная работа №9. Backend-сервер на C++}
 
-На эту таблицу, безусловно, можно так же ссылаться. Давайте сошлемся на \hyperref[tab:t1]{Таблицу \ref*{tab:t1}} и на этом, пожалуй, закончим.
+\subsection{Теория: ZMQ и передача данных между Android и сервером}
+
+ZeroMQ - это библиотека для асинхронного обмена сообщениями между процессами или по сети. Она работает поверх обычных сокетов, но упрощает программирование: не нужно управлять соединениями, повторными отправками и буферизацией. В проекте используется шаблон REQ/REP. Android выступает в роли клиента, отправляя JSON с координатами на сервер, а сервер отвечает коротким подтверждением. Данные передаются по TCP. Сервер привязан к порту 5555 на всех интерфейсах, клиент подключается по IP-адресу компьютера в той же локальной сети.
+
+\subsection{Реализация}
+
+Сервер написан на C++ с использованием библиотек: libzmq для сокетов, nlohmann/json для парсинга JSON, ImGui и ImPlot для графического интерфейса, SDL2 как бэкенд окна.
+
+\subsubsection{Структуры данных}
+
+Для передачи данных из серверного потока в GUI-поток определена структура LocationData с координатами, высотой и временем, а также мьютекс для потокобезопасного доступа.
+
+\begin{lstlisting}[language=C++, caption=Структура LocationData, label=lst:locationdata]
+struct LocationData{
+    float latitude=0.0f;
+    float longitude=0.0f;
+    float altitude=0.0f;
+    float accuracy=0.0f;
+    std::string time="No data";
+    long long time_milliseconds=0;
+    TrafficData traffic;
+    std::vector<CellTowerData> cellTowers;
+    std::mutex mutex;
+};
+\end{lstlisting}
+
+\subsubsection{Серверный поток}
+
+Функция run\_zmq\_server() создаёт ZMQ-контекст и сокет типа REP, привязывает его к порту 443. В бесконечном цикле сокет ожидает сообщение от клиента. При получении JSON-строки она парсится, извлекаются поля с координатами, временем и данными о сотах. Для потокобезопасного доступа используется мьютекс. Сервер также сохраняет данные в JSON-файл и базу данных.
+
+\begin{lstlisting}[language=C++, caption=Обработка входящих данных на сервере, label=lst:server_parse]
+void run_zmq_server(LocationData* loc){
+    zmq::context_t context(1);
+    zmq::socket_t socket(context,ZMQ_REP);
+    socket.bind("tcp://*:443");
+
+    while(true){
+        zmq::message_t request;
+        socket.recv(request);
+        std::string msg=static_cast<char*>(request.data());
+
+        try{
+            json j=json::parse(msg);
+            {   std::lock_guard<std::mutex> lock(loc->mutex);
+                if (j.contains("location")&&j["location"].is_object()){
+                    auto& loc_data=j["location"];
+                    loc->latitude=getFloatValue(loc_data,"latitude",0.0f);
+                    loc->longitude=getFloatValue(loc_data,"longitude",0.0f);
+                    loc->altitude=getFloatValue(loc_data,"altitude",0.0f);
+                    loc->accuracy=getFloatValue(loc_data,"accuracy",0.0f);
+                    loc->time=loc_data.value("time","No data");}
+                //тут мог быть парсинг traffic и cells }
+            g_measurementCounter++;
+            saveToJsonFile(*loc,g_measurementCounter);
+            updateSignalHistory(*loc);
+            //сохранение в БД}
+        catch(const json::parse_error& e){std::cerr<<"Ошибка JSON: "<<e.what()<<std::endl;}}}
+\end{lstlisting}
+
+\subsubsection{GUI-поток}
+
+Функция run\_gui() инициализирует окно SDL2, контекст OpenGL, ImGui и ImPlot. В каждом кадре отображается окно с заголовком LOCATION \& TELEPHONY, где выводятся значения из структуры LocationData.
+
+\subsubsection{Запуск потоков}
+
+В функции main() создаются два потока: gui\_thread и server\_thread. Им передаётся указатель на общую структуру LocationData.
+
+\begin{lstlisting}[language=C++, caption=Запуск потоков в main(), label=lst:main_threads]
+int main(){
+    if (g_database.connect()){std::cout<<"\033[32mПодключение к БД успешно\033[0m"<<std::endl;}
+    std::thread gui_thread(run_gui,&g_locationData);
+    std::thread server_thread(run_zmq_server,&g_locationData);
+    gui_thread.join();
+    server_thread.join();}
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{lab9_backend.png}
+\caption{Окно сервера на C++ 1 версии}
+\end{figure}
+
+\section{Лабораторная работа №13. Работа с базой данных PostgreSQL}
+
+\subsection{Теория: база данных и её схема}
+
+PostgreSQL - реляционная система управления базами данных. В проекте используется для хранения всех измерений, поступающих от Android-приложения. Схема базы данных состоит из двух таблиц: based (основные измерения) и cells (данные о сотах). Связь один-ко-многим: одно измерение может содержать информацию о нескольких вышках сотовой связи.
+
+\begin{lstlisting}[language=SQL, caption=Схема базы данных PostgreSQL, label=lst:db_schema]
+CREATE TABLE based (
+    id SERIAL PRIMARY KEY,
+    counter INTEGER NOT NULL,
+    "current_time" BIGINT NOT NULL,
+    time TEXT NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    accuracy REAL,
+    altitude REAL,
+    traffic_total BIGINT,
+    traffic_total_rx BIGINT,
+    traffic_total_tx BIGINT
+);
+
+CREATE TABLE cells (
+    id SERIAL PRIMARY KEY,
+    measurement_id INTEGER NOT NULL,
+    type TEXT,
+    mcc INTEGER,
+    mnc INTEGER,
+    cell_identity BIGINT,
+    tac INTEGER,
+    earfcn INTEGER,
+    band INTEGER,
+    pci INTEGER,
+    rsrp INTEGER,
+    rsrq INTEGER,
+    rssi INTEGER,
+    rssnr INTEGER,
+    asu_level INTEGER,
+    cqi INTEGER,
+    timing_advance INTEGER,
+    FOREIGN KEY (measurement_id) REFERENCES based(id)
+);
+
+CREATE INDEX idx_based_time ON based(time);
+CREATE INDEX idx_based_location ON based(latitude, longitude);
+CREATE INDEX idx_cells_measurement ON cells(measurement_id);
+CREATE INDEX idx_cells_mcc_mnc ON cells(mcc, mnc);
+CREATE INDEX idx_cells_type ON cells(type);
+\end{lstlisting}
+
+\subsection{Реализация}
+
+Сервер на C++ подключается к PostgreSQL через библиотеку libpq. В классе Database реализованы методы connect(), insertMeasurement(), insertCell().
+
+\begin{lstlisting}[language=C++, caption=Класс Database для работы с PostgreSQL, label=lst:database_class]
+class Database{
+public:
+    Database():conn(nullptr){}
+    ~Database(){if (conn) PQfinish(conn);}
+    bool connect(){
+        const char* info="host=" DB_HOST " port=" DB_PORT 
+                          " dbname=" DB_NAME " user=" DB_USER 
+                          " password=" DB_PASSWORD;
+        conn=PQconnectdb(info);
+        if (PQstatus(conn)!=CONNECTION_OK){
+            std::cerr<<"ОШИБКА подключения: "<<PQerrorMessage(conn)<<"\n";
+            return false;}return true;}
+
+    int insertMeasurement(const LocationData& data,int counter);
+    bool insertCell(int measurement_id,const CellTowerData& cell);};
+\end{lstlisting}
+
+При получении JSON от Android сервер парсит данные, вызывает insertMeasurement для записи в таблицу based, а затем для каждой соты - insertCell.
+
+\begin{lstlisting}[language=C++, caption=Вставка данных в БД, label=lst:db_insert]
+int Database::insertMeasurement(const LocationData& data,int counter){
+    std::ostringstream query;
+    query << "INSERT INTO based (counter, current_time, time, "
+          << "latitude, longitude, accuracy, altitude, "
+          << "traffic_total, traffic_total_rx, traffic_total_tx) "
+          << "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+          << "RETURNING id";
+    //выполнение запроса
+    return measurement_id;}
+
+bool Database::insertCell(int measurement_id,const CellTowerData& cell){
+    std::ostringstream query;
+    query << "INSERT INTO cells (measurement_id, type, mcc, mnc, "
+          << "cell_identity, tac, earfcn, band, pci, rsrp, rsrq, "
+          << "rssi, rssnr, asu_level, cqi, timing_advance) "
+          << "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, "
+          << "$11, $12, $13, $14, $15, $16)";
+    //выполнение запроса}
+\end{lstlisting}
+
+В GUI-потоке данные о сигналах накапливаются в структуре SignalHistory с мьютексом. Графики используют библиотеку ImPlot.
+
+\begin{lstlisting}[language=C++, caption=Структура для хранения истории сигналов, label=lst:signal_history]
+struct SignalHistory{
+    std::vector<double> timestamps;
+    std::map<int,std::vector<double>> rsrp_values;
+    std::map<int,std::vector<double>> rsrq_values;
+    std::map<int,std::vector<double>> rssi_values;
+    std::map<int,std::vector<double>> rssnr_values;
+    std::map<int,std::vector<double>> ss_rsrp_values;
+    std::map<int,std::vector<double>> ss_rsrq_values;
+    std::map<int,std::vector<double>> ss_sinr_values;
+    std::map<int,std::vector<double>> dbm_values;
+    std::mutex mutex;};
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{lab13_backend.png}
+\caption{Окно сервера на C++ 2 версии}
+\end{figure}
+
+\section{Лабораторная работа №14. Отрисовка OpenStreetMap карты}
+
+\subsection{Теория: проекция Меркатора и тайлы}
+
+Для отображения карты на экране используется проекция Меркатора. Все карты OpenStreetMap разбиты на квадратные тайлы размером 256 × 256 пикселей. Каждый тайл однозначно идентифицируется уровнем масштаба zoom и координатами x, y.
+
+\subsection{Реализация}
+
+\subsubsection{Класс TileManager}
+
+Создан класс TileManager, который управляет загрузкой, кэшированием и отображением тайлов OSM. Основные возможности: асинхронная загрузка тайлов из сети, кэширование на диске, декодирование PNG в RGBA с использованием libpng, создание текстур OpenGL.
+
+\begin{lstlisting}[language=C++, caption=Метод загрузки тайла, label=lst:tile_download]
+bool TileManager::downloadTile(int zoom,int x,int y,std::vector<uint8_t>& rgbaData,int& width,int& height){
+    std::string url="https://tile.openstreetmap.org/"+std::to_string(zoom)+"/"+std::to_string(x)+"/"+std::to_string(y)+".png";
+    CURL* curl=curl_easy_init();
+    //настройки curl
+    curl_easy_setopt(curl,CURLOPT_URL,url.c_str());
+    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,WriteCallback);
+    CURLcode res=curl_easy_perform(curl);
+    //обработка ответа и декодирование png
+    return decodePngToRgba(response,rgbaData,width,height);}
+\end{lstlisting}
+
+\subsubsection{Пересчёт координат и подгрузка тайлов}
+
+В GUI-потоке при отображении карты определяются текущие границы видимой области. На основе этих границ вычисляется оптимальный уровень масштаба zoom.
+
+\begin{lstlisting}[language=C++, caption=Пересчёт географических координат в тайлы, label=lst:coord_to_tile]
+int TileManager::getZoomForLimits(double minLon,double maxLon){
+    double diff=maxLon-minLon;
+    if (diff>90.0) return 4;
+    else if (diff>45.0) return 5;
+    else if (diff>22.5) return 6;
+    else if (diff>11.25) return 7;
+    //и тд
+    else return 15;}
+
+double TileManager::mercatorXToTileX(double mercatorX,int zoom){
+    return (0.5+mercatorX/360.0)*(1<<zoom);}
+
+double TileManager::mercatorYToTileY(double mercatorY,int zoom){
+    double lat_rad=mercatorY*M_PI/180.0;
+    double y_normalized=0.5-log(tan(M_PI/4.0+lat_rad/2.0))/(2.0*M_PI);
+    return y_normalized*(1<<zoom);}
+\end{lstlisting}
+
+\subsubsection{Отображение карты в ImPlot}
+
+Карта рисуется с помощью функции ImPlot::PlotImage(), которая принимает текстурный идентификатор и координаты углов тайла.
+
+\begin{lstlisting}[language=C++, caption=Рендеринг тайлов карты, label=lst:tile_render]
+void TileManager::renderTiles(double minX,double maxX,double minY,double maxY){
+    int zoom=getZoomForLimits(minX,maxX);
+    //выч. диапазона тайлов
+    
+    for (int x=minTileX;x<=maxTileX;x++){
+        for (int y=minTileY;y<=maxTileY;y++){
+            GLuint gpuId=getTextureId(zoom,x,y);
+            if (gpuId!=0){
+                ImPlotPoint minPoint{tileXToMercatorX(x,zoom),tileYToMercatorY(y+1,zoom)};
+                ImPlotPoint maxPoint{tileXToMercatorX(x+1,zoom),tileYToMercatorY(y,zoom)};
+                ImPlot::PlotImage(("##tile_"+tileId).c_str(),(ImTextureID)(intptr_t)gpuId,minPoint, maxPoint);}}}}
+\end{lstlisting}
+
+\subsubsection{Асинхронная загрузка}
+
+Для плавной работы интерфейса загрузка тайлов выполняется в отдельном потоке через очередь задач.
+
+\begin{lstlisting}[language=C++, caption=Асинхронная загрузка тайлов, label=lst:async_load]
+void TileManager::fetchWorker(){
+    while (m_running){
+        TileJob job;
+        bool hasJob=false;
+        {   std::lock_guard<std::mutex> lock(m_jobMutex);
+            if (!m_jobQueue.empty()){
+                job = m_jobQueue.front();
+                m_jobQueue.pop();
+                hasJob=true;}}
+        if (hasJob){
+            std::vector<uint8_t> rgbaData;
+            int width, height;
+            if (downloadTile(job.zoom,job.x,job.y,rgbaData,width,height)){
+                //сохранение в кэш и создание текстуры
+                }
+        }else{std::this_thread::sleep_for(std::chrono::milliseconds(10));}}}
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{lab14_backend.png}
+\caption{Окно сервера на C++ 3 версии}
+\end{figure}
+
+\section{Лабораторная работа №15. Генерация тепловой карты}
+
+\subsection{Теория: метод обратных взвешенных расстояний (IDW)}
+
+Тепловая карта строится на основе интерполяции экспериментальных измерений. Используется метод обратных взвешенных расстояний (IDW, Inverse Distance Weighting):
+
+\[
+\hat{Z}(x_0, y_0) = \frac{\sum_{i=1}^{n} \frac{Z_i}{d_i^p}}{\sum_{i=1}^{n} \frac{1}{d_i^p}}
+\]
+
+где \(d_i\) — расстояние до i-й точки измерения, \(p\) — параметр степени (в проекте \(p=2\)).
+
+Критерии оценки RSRP:
+\begin{itemize}
+    \item Excellent: > -80 dBm (красный цвет)
+    \item Good: от -80 до -90 dBm
+    \item Fair/Marginal: от -90 до -100 dBm
+    \item Poor/Weak: от -100 до -110 dBm (тёмно-синий)
+    \item No Signal: < -110 dBm (не закрашивается)
+\end{itemize}
+
+\subsection{Реализация}
+
+\subsubsection{Класс HeatmapData}
+
+Создан класс HeatmapData, который загружает из базы данных PostgreSQL все измерения LTE. Данные группируются по метрике и по EARFCN. Для каждого набора вычисляется динамический диапазон значений.
+
+\begin{lstlisting}[language=C++, caption=Загрузка данных для тепловой карты из БД, label=lst:heatmap_load]
+std::vector<HeatmapDbRow> Database::getHeatmapRows(){
+    std::vector<HeatmapDbRow> rows;
+    const char* query=
+        "SELECT b.latitude, b.longitude, b.accuracy, b.altitude, "
+        "c.earfcn, c.rsrp, c.rsrq, c.rssi "
+        "FROM based b "
+        "JOIN cells c ON c.measurement_id = b.id "
+        "WHERE c.type = 'LTE' "
+        "ORDER BY b.id";
+    
+    PGresult* res=PQexec(conn,query);
+    for (int i=0;i<PQntuples(res);++i){
+        HeatmapDbRow row;
+        row.latitude=std::stod(PQgetvalue(res,i,0));
+        row.longitude=std::stod(PQgetvalue(res,i,1));
+        row.earfcn=std::stoi(PQgetvalue(res,i,4));
+        row.rsrp=std::stoi(PQgetvalue(res,i,5));
+        //...
+        rows.push_back(row);}return rows;}
+\end{lstlisting}
+
+\subsubsection{Рендеринг тайлов тепловой карты}
+
+Метод renderTile() для заданного тайла создаёт изображение 256×256 пикселей. Для каждого пикселя вычисляются географические координаты, затем по методу IDW интерполируется значение.
+
+\begin{lstlisting}[language=C++, caption=Интерполяция IDW для тепловой карты, label=lst:idw_interpolation]
+bool HeatmapData::renderTile(const HeatmapSelection& selection,int zoom,int x,int y,std::vector<uint8_t>& rgbaData,int& width,int& height) const{
+    width=256;height=256;
+    rgbaData.assign(width*height*4,0);
+    
+    for (int pixelY=0;pixelY<height;++pixelY){
+        const double latitude=tilePixelToLatitude(zoom,y,pixelY,height);
+        for (int pixelX=0;pixelX<width;++pixelX){
+            const double longitude=tilePixelToLongitude(zoom,x,pixelX,width);
+            double weightedSum=0.0;
+            double totalWeight=0.0;
+            for (const Sample* sample:candidates){
+                const double distance=haversineMeters(latitude,longitude,sample->latitude,sample->longitude);
+                const double weight=1.0/std::pow(distance,selection.power);
+                weightedSum+=sample->value*weight;
+                totalWeight+=weight;}
+            
+            if (totalWeight>0.0){
+                double interpolatedValue=weightedSum/totalWeight;
+                // преобразование в цвет пикселя}}}
+    return hasVisiblePixels;}
+\end{lstlisting}
+
+\subsubsection{Цветовая схема}
+
+Для визуализации значений используется градиент от синего (худшие значения) через зелёный и жёлтый к красному (лучшие значения).
+
+\begin{lstlisting}[language=C++, caption=Функция цветовой схемы, label=lst:colorize]
+void HeatmapData::colorize(double ratio,float opacity,uint8_t& r,uint8_t& g,uint8_t& b,uint8_t& a){
+    static const ColorStop stops[]={
+        {0.0,10.0,20.0,120.0},
+        {0.35,0.0,120.0,255.0},
+        {0.7;255.0,200.0,0.0},
+        {1.0,255.0,0.0,0.0}};
+    r=static_cast<uint8_t>(left->r+(right->r-left->r)*localRatio);
+    g=static_cast<uint8_t>(left->g+(right->g-left->g)*localRatio);
+    b=static_cast<uint8_t>(left->b+(right->b-left->b)*localRatio);
+    a=static_cast<uint8_t>(255.0f*opacity);}
+\end{lstlisting}
+
+\subsubsection{Интеграция в GUI}
+
+В окне ImGui добавлена панель управления тепловой картой с выбором метрики, EARFCN и параметров интерполяции.
+
+\begin{lstlisting}[language=C++, caption=Панель управления тепловой картой в GUI, label=lst:heatmap_gui]
+ImGui::Checkbox("Show heatmap",&heatmapEnabled);
+const char* metricItems[]={"RSRP","RSRQ","RSSI","Altitude"};
+ImGui::Combo("Criterion",&selectedMetric,metricItems,IM_ARRAYSIZE(metricItems));
+
+std::vector<int> availableEarfcns=g_tileManager.getAvailableHeatmapEarfcns(metric);
+if (ImGui::BeginCombo("EARFCN",std::to_string(selectedEarfcn).c_str())){
+    for (int earfcn:availableEarfcns){
+        if (ImGui::Selectable(std::to_string(earfcn).c_str(),selectedEarfcn==earfcn)){
+            selectedEarfcn=earfcn;
+            heatmapGenerated=false;}}ImGui::EndCombo();}
+
+if (ImGui::Button("Generate heatmap")){
+    heatmapGenerated=true;
+    g_tileManager.clearHeatmapCache();}
+
+g_tileManager.setHeatmapSelection({
+    heatmapEnabled && heatmapGenerated,
+    metric, selectedEarfcn,radiusMeters,
+    displayRadiusMeters,2.0,0.55f});
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{lab15_backend.png}
+\caption{Окно сервера на C++ 4 версии}
+\end{figure}
 
 \endinput

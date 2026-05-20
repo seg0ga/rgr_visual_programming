@@ -160,7 +160,7 @@ doi=false,                                          % Не отображать 
 isbn=false,                                         % Не показывать ISBN, ISSN, ISRN
 ]{biblatex}[2016/09/17]
 \DeclareDelimFormat{bibinitdelim}{}                 % Убираем пробел между инициалами (Иванов И.И. вместо Иванов И. И.)
-\addbibresource{bibl.bib}                           % Определяем файл с библиографией
+\addbibresource{0_main.bib}                           % Определяем файл с библиографией
 
 %%% Скрипт, который автоматически подбирает язык (и, следовательно, формат) для каждой библиографической записи %%%
 %%% Если в названии работы есть кириллица - меняем значение поля langid на russian %%%
@@ -179,7 +179,6 @@ isbn=false,                                         % Не показывать 
 }
 
 %%% Прочие пакеты для расширения функционала %%%
-
 \usepackage{longtable,ltcaption}                    % Длинные таблицы
 \usepackage{multirow,makecell}                      % Улучшенное форматирование таблиц
 \usepackage{booktabs}                               % Еще один пакет для красивых таблиц
@@ -191,6 +190,21 @@ isbn=false,                                         % Не показывать 
 \usepackage{amsmath}                                % Усовершенствование отображения математических выражений 
 
 %%% Вставляем по очереди все содержательные части документа %%%
+\usepackage{listings}
+\usepackage{color}
+
+\lstset{
+    language=Java,
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny,
+    breaklines=true,
+    frame=single,
+    captionpos=b
+}
 
 \begin{document}
 

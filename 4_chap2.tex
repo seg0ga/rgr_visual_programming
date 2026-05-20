@@ -1,104 +1,254 @@
-\chapter{Второй раздел, посвященный тому, как делать рисунки и формулы}
-\label{ch:chap2}
+\chapter{Android приложение и его функционал}
+\label{ch:android}
 
-\section{Рисунки}
-\label{sec:fig}
+\section{Лабораторная работа №6. Местоположение смартфона}
+\subsection{Цель}
+Получить доступ к данным о местоположении Android-телефона и вывести на экран значения.
 
-\subsection{Обычные одинарные рисунки, управление размером, подписями и ссылками в тексте}
-\label{subsec:simp-fig}
+\subsection{Теория}
+Для определения местоположения в Android используются GPS, Wi-Fi и сотовые вышки. Класс FusedLocationProviderClient объединяет данные от всех источников, обеспечивая оптимальный баланс точности и энергопотребления. Для доступа к координатам требуется запросить разрешения ACCESS\_FINE\_LOCATION или ACCESS\_COARSE\_LOCATION.
 
-Рисунки в \LaTeX{} нумеруются автоматически. Если мы задали им уникальные метки, то мы можем к ним потом также обращаться. Ссылки на рисунки в тексте, также как ссылки на разделы и библиографические записи, кликабельные. Например, на \hyperref[fig:bird1]{Рисунке \ref*{fig:bird1}} представлена некоторая неизвестная нам птица. По умолчанию размер рисунков будет продгоняться под ширину текста, но в среде \verb|figure| можно установить ширину вручную. Например, тут ширина установлена в половину от ширины текста. Подписи к рисункам сделаны по ГОСТ: в центре, без точки в конце, есть полнотекстовая надпись "<Рисунок"> и длинное тире в качестве разделителя. Шрифт подписи сделан меньше основнового текстового шрифта (12 кегль). Так выглядит аккуратнее, а ГОСТ это, вроде бы, не запрещает.
+\subsection{Реализация}
+В проекте создано Activity location.kt. При запуске запрашиваются разрешения, инициализируется FusedLocationProviderClient:
 
-    \begin{figure}[ht]
-        \centering
-        \includegraphics[width=0.5\textwidth]{bird1}
-        \caption{Это типа какая-то птица}
-        \label{fig:bird1}
-    \end{figure}
+\begin{lstlisting}[language=Java, caption=Инициализация FusedLocationProviderClient]
+class location:AppCompatActivity(){
+    lateinit var myFusedLocationProviderClient:FusedLocationProviderClient
+    
+    override fun onCreate(savedInstanceState: Bundle?){
+        super.onCreate(savedInstanceState)
+        myFusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)}}
+\end{lstlisting}
 
-Теперь продемонстрируем, как будут выглядеть длинные многострочные подписи. Для этого посмотрим на вторую неизвестную нам птицу, представленную на \hyperref[fig:bird2]{Рисунке \ref*{fig:bird2}}. Кстати, тут задан другой размер рисунка --- одна третья от ширины страницы.
+Метод getCurrentLocation() получает координаты с высокой точностью:
 
-    \begin{figure}[ht]
-        \centering
-        \includegraphics[width=0.33\textwidth]{bird2}
-        \caption{Это другая птица, которая отличается от первой птицы формой клюва, цветом оперения, ареалом обитания, а также умением повторять за своим владельцем. Последнее, однако, не точно: птица, конечно, похожа на папугая, но мы не можем знать наверняка}
-        \label{fig:bird2}
-    \end{figure}
+\begin{lstlisting}[language=Java, caption=Получение текущего местоположения]
+private fun getCurrentLocation(){
+    if (checkPermissions()){
+        if (isLocationEnabled()){
+            myFusedLocationProviderClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY,null).addOnCompleteListener(this){task->
+                val location:Location?=task.result
+                if (location!=null){
+                    lat_site=location.latitude
+                    lon_site=location.longitude
+                    lat.setText(location.latitude.toString())
+                    lon.setText(location.longitude.toString())
+                    alt.setText(round(location.altitude).toString())
+                    tojson(location.latitude,location.longitude,location.altitude,location.time.toString())}}}}}
+\end{lstlisting}
 
-Мы напишем тут какой-нибудь текст, чтобы было видно величину отступа после подписи к рисунку. Мы не меняли это значение, оставили то, которое установлены в данном классе по умолчанию.
+Данные выводятся в TextView, а также сохраняются в файл location.json в папке Downloads. Кнопка card\_button открывает карту в браузере:
 
-\subsection{Сложные многоуровневые рисунки}
-\label{subsec:comp-fig}
+\begin{lstlisting}[language=Java, caption=Открытие карты]
+card_button.setOnClickListener({
+    val uri=Uri.parse("https://geotree.ru/coordinates?lat=$lat_site&lon=$lon_site")
+    val siteIntent=Intent(Intent.ACTION_VIEW,uri)
+    startActivity(siteIntent)})
+\end{lstlisting}
 
-Теперь посмотрим на то, как делать сложные рисунки. Обычно речь идет о двух-трех-четырех подрисунках, которые нумеруют (а), (б) и так далее. Мы делаем это при помощи среды \verb|subfigure| и инструментов, которые нам дает пакет \verb|subcaption|. На примере \hyperref[fig:tiger]{Рисунка \ref*{fig:tiger}} посмотрим, как задавать геометрию и расположение рисунков. Здесь два изображения разного формата, поэтому мы вручную выровняли их по высоте.
+Обновление координат происходит каждые 10 секунд:
 
-\begin{figure}[ht]
-	\centering
-\hspace*{\fill}%
-	\begin{subfigure}[b]{0.49\textwidth}
-        \centering
-		\includegraphics[height=5cm,keepaspectratio]{tiger1}
-		\caption{}
-		\label{fig:tiger1}
-	\end{subfigure}
-\hfill
-	\begin{subfigure}[b]{0.49\textwidth}
-        \centering
-		\includegraphics[height=5cm,keepaspectratio]{tiger2}
-        \caption{}
-		\label{fig:tiger2}
-	\end{subfigure}
-\hspace*{\fill}%
-	\caption{Тигры. На рисунке (а) представлен гуляющий в саванне тигр, а на рисунке \\ (б) --- купающийся в водоеме. Тигр на (б) выглядит весьма довольным}
-	\label{fig:tiger}
+\begin{lstlisting}[language=Java, caption=Периодическое обновление]
+private fun updatelocation(){
+    handler.postDelayed({
+        getCurrentLocation()
+        updatelocation()}, 10000)}
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.3\textwidth]{lab6_android.png}
+\caption{Экран Location}
 \end{figure}
 
-Обратите внимание, что при помощи уже известных нам инструмеров можно обращаться не только в целом к рисункам, но и к конкретным подрисункам. Например, отметим, насколько же мощны лапищи этого прекрасного тигра на \hyperref[fig:tiger2]{Рисунке \ref*{fig:tiger2}}. Далее мы посмотрим, как делать двухэтажные рисунки. Добавим еще один рисунок внизу по центру. \LaTeX{} может сам менять местами рисунки и окружающий их текст с целью избежать пустых мест на страницах.
+\section{Лабораторная работа №8. Работа с сокетами (ZMQ). Передача данных от Android к PC}
+\subsection{Цель}
+Реализовать обмен сообщениями между Android-приложением и сервером на ПК с использованием ZeroMQ.
 
-\begin{figure}[!ht]
-	\centering
-\hspace*{\fill}%
-	\begin{subfigure}[b]{0.33\textwidth}
-        \centering
-		\includegraphics{fish1}
-		\caption{}
-		\label{fig:fish1}
-	\end{subfigure}
-\hfill
-	\begin{subfigure}[b]{0.33\textwidth}
-        \centering
-		\includegraphics{fish2}
-        \caption{}
-		\label{fig:fish2}
-	\end{subfigure}
-\hspace*{\fill}%
-\par\vspace{\abovecaptionskip}
-        \begin{subfigure}[b]{0.33\textwidth}
-        \centering
-		\includegraphics{fish3}
-		\caption{}
-		\label{fig:fish3}
-	\end{subfigure}
-	\caption{Разные рыбы}
-	\label{fig:fish}
+\subsection{Теория}
+ZeroMQ - высокопроизводительная асинхронная библиотека для обмена сообщениями, поддерживающая различные паттерны. В отличие от обычных сокетов, ZMQ автоматически управляет буферизацией, переподключением и маршрутизацией. Для взаимодействия Android-клиента с ПК-сервером используется сокет типа REQ (запрос) и REP (ответ).
+
+\subsection{Реализация}
+Создано Activity sockets.kt. При запуске запускается поток сервера, который связывается с портом 6666:
+
+\begin{lstlisting}[language=Java, caption=Серверная часть на ZMQ]
+fun startServer(){
+    val context=ZMQ.context(1)
+    val socket=ZContext().createSocket(SocketType.REP)
+    socket.bind("tcp://localhost:6666")
+    var counter:Int=0
+    
+    while (true){
+        counter++
+        val requestBytes=socket.recv(0)
+        val request=String(requestBytes,ZMQ.CHARSET)
+        handler.postDelayed({serverView.text=request},0)
+        val response="Получено сообщение №$counter"
+        socket.send(response.toByteArray(ZMQ.CHARSET),0)}}
+\end{lstlisting}
+
+Клиент отправляет текст из EditText при нажатии кнопки. Переключатель позволяет менять адрес сервера на внешний IP:
+
+\begin{lstlisting}[language=Java, caption=Клиентская часть]
+fun startClient(){
+    val context=ZMQ.context(1)
+    val socket=ZContext().createSocket(SocketType.REQ)
+    if (flag){socket.connect("tcp://192.168.1.211:2222")
+    }else{socket.connect("tcp://localhost:6666")}
+    val request=clientText.text.toString()
+    socket.send(request.toByteArray(ZMQ.CHARSET),0)
+    val reply=String(socket.recv(0),ZMQ.CHARSET)
+    clientView.text=reply}
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.3\textwidth]{lab8_android.png}
+\caption{Экран Sockets}
 \end{figure}
 
-На \hyperref[fig:fish]{Рисунке \ref*{fig:fish}} есть три фотографии одинакового размера, причем третья находится в нижнем ряду по центру. Нехитрым образом можем также сделать ссылку, которая обращается будто бы сразу к нескольким подрисункам, хотя в действительности ведет на весь рисунок. Например, можем написать так: \hyperref[fig:fish]{Рисунок \ref*{fig:fish}а--в}.
+\section{Лабораторная работа №10. Android Cellinfo}
+\subsection{Цель}
+Получать и передавать на сервер детальную информацию о сотах сотовой связи вместе с геолокацией и сетевым трафиком.
 
-\section{Формулы}
-\label{sec:equ}
+\subsection{Теория}
+Класс TelephonyManager предоставляет метод getAllCellInfo(), возвращающий список сотовых вышек текущего типа сети (LTE, GSM, NR). Для каждой соты можно получить уникальные идентификаторы (CID, TAC, PCI, EARFCN) и параметры сигнала (RSRP, RSRQ, RSSNR). Эти данные вместе с GPS-координатами позволяют анализировать покрытие сети и качество связи.
 
-Тут все просто, можете погуглить, как делать формулы, какие пакеты надо для этого подгружать, и т.д. Формулы можно вставлять прямо в текст, это делается при помощи одинарных знаков \verb|$|. Например, можно сделать вот такую штуку: $x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}$. На такие формулы неудобно ссылаться. Можно сделать формулу на отдельной строке, присвоить ей номер и метку, чтобы потом обращаться к этой формуле из любого места в тексте при помощи уже известной нам команд \verb|ref| и \verb|hyperref|. Для этого есть среда \verb|equation|. Запишем выражение:
-\begin{equation}
-\label{eq:e1}
-\frac{n!}{k!(n-k)!} = \binom{n}{k}.
-\end{equation}
-После этого в тексте можно ссылаться точно так же на Выражение \ref{eq:e1}, что часто оказывается весьма полезно. Можно использовать и \verb|hyperref|, сделав ссылку на \hyperref[eq:e1]{Выражение \ref*{eq:e1}} --- выбирайте сами.
+\subsection{Реализация}
+Создано Activity telephony.kt. Пользователь выбирает тип сети (LTE, GSM, NR) через кнопки:
 
-Кстати, можно еще делать красивые химические реакции. В качестве примера рассмотрим \hyperref[eq:e2]{Выражение \ref*{eq:e2}}. Для создания таких выражений используется пакет \verb|mhchem|.
-\begin{equation}
-    \label{eq:e2}
-    \ce{Na2SO4 ->[H2O] Na+ + SO4^2-}.
-\end{equation}
+\begin{lstlisting}[language=Java, caption=Выбор типа сети]
+bttn_lte.setOnClickListener({
+    flag=1
+    CellIdentity.setText("CellIdentityLTE")
+    CellSignalStrength.setText("CellSignalStrengthLTE")
+    bttn_lte.setBackgroundColor(Color.parseColor("#2d2d2f"))
+    bttn_gsm.setBackgroundColor(Color.parseColor("#16c603"))
+    bttn_nr.setBackgroundColor(Color.parseColor("#16c603"))})
+\end{lstlisting}
+
+Получение информации о сотах LTE:
+
+\begin{lstlisting}[language=Java, caption=Получение данных о сотах LTE]
+if (flag==1){
+    val telephonyManager=getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+    val cellInfoList=telephonyManager.allCellInfo
+    cellInfoList?.forEach{cellInfo->
+        if (cellInfo is CellInfoLte){
+            cellIdentityList.add("Band: ${cellInfo.cellIdentity.bandwidth}")
+            cellIdentityList.add("CellIdentity: ${cellInfo.cellIdentity.ci}")
+            cellIdentityList.add("EARFCN: ${cellInfo.cellIdentity.earfcn}")
+            cellIdentityList.add("PCI: ${cellInfo.cellIdentity.pci}")
+            cellIdentityList.add("TAC: ${cellInfo.cellIdentity.tac}")
+            cellSignalStrengthList.add("RSRP: ${cellInfo.cellSignalStrength.rsrp}")
+            cellSignalStrengthList.add("RSRQ: ${cellInfo.cellSignalStrength.rsrq}")
+            cellSignalStrengthList.add("RSSI: ${cellInfo.cellSignalStrength.rssi}")}}}
+\end{lstlisting}
+
+Данные отображаются в двух списках (идентификаторы и мощность):
+
+\begin{lstlisting}[language=Java, caption=Отображение данных в ListView]
+val a1=ArrayAdapter(this,android.R.layout.simple_list_item_1,cellIdentityList)
+list_cell_info1.adapter=a1
+val a2=ArrayAdapter(this,android.R.layout.simple_list_item_1,cellSignalStrengthList)
+list_cell_info2.adapter=a2
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.3\textwidth]{lab10_android.png}
+\caption{Экран Cellinfo}
+\end{figure}
+
+\section{Лабораторная работа №11. Android background service}
+\subsection{Цель}
+Реализовать фоновый сервис, который в фоне собирает данные о местоположении, сотах и трафике, отправляет их на сервер и сохраняет в файл.
+
+\subsection{Теория}
+Сервисы Android позволяют приложению выполнять код в фоне, даже когда экран выключен или пользователь работает с другим приложением. Это нужно для периодического сбора местоположения, данных о сотах и отправки их на сервер без участия пользователя.
+
+\subsection{Реализация}
+Класс BackgroundService.kt наследуется от Service. В методе onStartCommand запускается корутина, в которой циклически вызываются getCurrentLocation() и getCellInfo():
+
+\begin{lstlisting}[language=Java, caption=Фоновый сервис - основной цикл]
+class BackgroundService:Service(){
+    private val serviceJob=Job()
+    private val serviceScope=CoroutineScope(Dispatchers.IO+serviceJob)
+    
+    override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
+        flag=intent?.getIntExtra("flag", 1)?:1
+        serviceScope.launch{
+            while (isActive){
+                getCurrentLocation()
+                getCellInfo()
+                delay(3000)}}
+        return START_STICKY}}
+\end{lstlisting}
+
+Отправка данных в Activity через LocalBroadcastManager:
+
+\begin{lstlisting}[language=Java, caption=Отправка данных в Activity]
+private fun sendLocationToActivity(location:Location){
+    val intent=Intent("LOCATION_UPDATE")
+    intent.putExtra("latitude",location.latitude.toString())
+    intent.putExtra("longitude",location.longitude.toString())
+    intent.putExtra("altitude",round(location.altitude).toString())
+    intent.putExtra("accuracy",location.accuracy.toString())
+    val totalTraffic=TrafficStats.getTotalRxBytes()+TrafficStats.getTotalTxBytes()
+    intent.putExtra("traffic","${totalTraffic/1024/1024} MB")
+    LocalBroadcastManager.getInstance(this).sendBroadcast(intent)}
+\end{lstlisting}
+
+Формирование JSON и отправка на сервер через ZMQ:
+
+\begin{lstlisting}[language=Java, caption=Отправка данных на сервер]
+private fun sendAllData(location:Location){
+    val jsonData=JSONObject()
+    val locData=JSONObject()
+    locData.put("latitude",location.latitude)
+    locData.put("longitude",location.longitude)
+    locData.put("altitude",round(location.altitude))
+    jsonData.put("location",locData)
+    val cellsArray=JSONArray()
+    jsonData.put("cells",cellsArray)
+    Thread{
+        val socket=ZContext().createSocket(SocketType.REQ)
+        socket.connect("tcp://172.22.237.35:443")
+        socket.send(jsonData.toString().toByteArray(ZMQ.CHARSET),0)
+        socket.close()}.start()
+    saveToFile(jsonData)}
+\end{lstlisting}
+
+Сохранение данных в файл:
+
+\begin{lstlisting}[language=Java, caption=Сохранение в JSON файл]
+private fun saveToFile(jsonData:JSONObject){
+    val downloadsDir=Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    val file=File(downloadsDir,"mydata.json")
+    val jsonObject=if (file.exists()) JSONObject(file.readText()) else JSONObject()
+    val dataArray=if (jsonObject.has("data")) jsonObject.getJSONArray("data") else JSONArray()
+    dataArray.put(jsonData)
+    jsonObject.put("data",dataArray)
+    file.writeText(jsonObject.toString())}
+\end{lstlisting}
+
+Запуск и остановка сервиса из Activity:
+
+\begin{lstlisting}[language=Java, caption=Управление сервисом]
+bStart.setOnClickListener{
+    val startBgIntent=Intent(this,BackgroundService::class.java)
+    startBgIntent.putExtra("flag",flag)
+    startService(startBgIntent)}
+
+bStop.setOnClickListener{
+    val stopBgIntent=Intent(this,BackgroundService::class.java)
+    stopService(stopBgIntent)}
+\end{lstlisting}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.3\textwidth]{lab11_android.png}
+\caption{Экран location+cellinfo+traffic}
+\end{figure}
 
 \endinput
