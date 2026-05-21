@@ -292,10 +292,10 @@ void TileManager::fetchWorker(){
 Тепловая карта строится на основе интерполяции экспериментальных измерений. Используется метод обратных взвешенных расстояний (IDW, Inverse Distance Weighting):
 
 \[
-\hat{Z}(x_0, y_0) = \frac{\sum_{i=1}^{n} \frac{Z_i}{d_i^p}}{\sum_{i=1}^{n} \frac{1}{d_i^p}}
+\operatorname{weight}(x) = \frac{\sum_{i=1}^{N} \frac{\operatorname{weight}_i}{d(x, x_i)^p}}{\sum_{i=1}^{N} \frac{1}{d(x, x_i)^p}}
 \]
 
-где \(d_i\) — расстояние до i-й точки измерения, \(p\) — параметр степени (в проекте \(p=2\)).
+где \(d(x, x_i)^p\) — расстояние между точками, а при \(d(x, x_i) = 0\) значение \(\operatorname{weight}(x)\) принимается равным \(\operatorname{weight}_i\).
 
 Критерии оценки RSRP:
 \begin{itemize}
